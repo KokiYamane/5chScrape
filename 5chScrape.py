@@ -117,8 +117,11 @@ def main():
         print('get thread data: {} {} {} {}'.format(thread['board'], thread['datetime'], link_thread, thread['title']))
         json_thread = json.dumps(thread, ensure_ascii=False, indent=2)
         folderId = folderIdList[getFolderName(thread)]
+
         writeGDrive(drive, makeFilename(thread), folderId, json_thread)
-        message = 'get thread data\n{}'.format(link_thread)
+
+        d = datetime.datetime.strptime(thread['datetime'], '%Y-%m-%d %H:%M:%S')
+        message = 'get thread data\n\ntitle: {}\nboard: {}\ndate: {}\n\n{}'.format(thread['title'], thread['board'], d.strftime('%Y/%m/%d'), link_thread)
         if lineNotifyFlag: lineNotify.send(message=message)
 
 if __name__ == '__main__': main()

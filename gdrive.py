@@ -2,11 +2,13 @@ from pydrive.drive import GoogleDrive
 from pydrive.auth import GoogleAuth
 import json
 import os
+import urllib.parse
 
 
 def writeGDrive(drive, title, parentId, string):
+  title_encorded = urllib.parse.quote(title)
   fileList = drive.ListFile({
-    'q': "title = '{}' and '{}' in parents and trashed=false".format(title, parentId)
+    'q': "title = '{}' and '{}' in parents and trashed=false".format(title_encorded, parentId)
   }).GetList()
 
   if len(fileList) == 0:
