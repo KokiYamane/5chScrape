@@ -129,6 +129,7 @@ def main():
           # if lineNotifyFlag: lineNotify.send(message=message)
         
         except Exception as e:
+          print('[Error] {} {}'.format(link_thread, e))
           message = 'error\n\n{}\n\n{}'.format(e, link_thread)
           if lineNotifyFlag: lineNotify.send(message=message)
 
