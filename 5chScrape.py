@@ -7,6 +7,7 @@ import re
 import datetime
 
 from gdrive import *
+from LineNotify import *
 
 
 def getDomain(url):
@@ -90,7 +91,16 @@ def main():
 
   drive = GoogleDrive(gauth)
 
-  folderIdList = getFolderIdList('folderIDList.json', drive)
+  lineNotifyFlag = False
+  filename = 'LineAccessToken.txt'
+  if os.path.exists(filename):
+    with open(filename) as f:
+      LineAccessToken = f.read()
+      lineNotify = LINENotify(access_token=LineAccessToken)
+      lineNotifyFlag = True
+  else: print('Line Access Token Not Find.')
+
+  folderIdList = getFolderIdList('folderIdList.json', drive)
 
   urlName = 'http://lavender.5ch.net/kakolog_servers.html'
   url = requests.get(urlName)
@@ -108,5 +118,7 @@ def main():
         json_thread = json.dumps(thread, ensure_ascii=False, indent=2)
         folderId = folderIdList[getFolderName(thread)]
         writeGDrive(drive, makeFilename(thread), folderId, json_thread)
+        message = 'get thread data\n{}'.format(link_thread)
+        if lineNotifyFlag: lineNotify.send(message=message)
 
 if __name__ == '__main__': main()
