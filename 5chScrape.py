@@ -52,7 +52,10 @@ def getDatetime(text):
   match_time = re.search(r'\d\d:\d\d', text)
   if match_time != None: text_time = match_time.group(0)
   else: return ''
-  d = datetime.datetime.strptime(text_date + ' ' + text_time, '%y/%m/%d %H:%M')
+  try:
+    d = datetime.datetime.strptime(text_date + ' ' + text_time, '%y/%m/%d %H:%M')
+  except:
+    d = datetime.datetime.strptime(text_date + ' 00:00', '%y/%m/%d %H:%M')
   return d.strftime('%Y-%m-%d %H:%M:%S')
 
 def getThread(url, boardName):
@@ -112,16 +115,21 @@ def main():
     for link_board in links_board:
       board, links_thread = getLinksFromMain(link_board)
       for link_thread in links_thread:
-        thread = getThread(link_thread, board)
-        if thread == None: continue
-        print('get thread data: {} {} {} {}'.format(thread['board'], thread['datetime'], link_thread, thread['title']))
-        json_thread = json.dumps(thread, ensure_ascii=False, indent=2)
-        folderId = folderIdList[getFolderName(thread)]
+        try: 
+          thread = getThread(link_thread, board)
+          if thread == None: continue
+          print('get thread data: {} {} {} {}'.format(thread['board'], thread['datetime'], link_thread, thread['title']))
+          json_thread = json.dumps(thread, ensure_ascii=False, indent=2)
+          folderId = folderIdList[getFolderName(thread)]
 
-        writeGDrive(drive, makeFilename(thread), folderId, json_thread)
+          writeGDrive(drive, makeFilename(thread), folderId, json_thread)
 
-        d = datetime.datetime.strptime(thread['datetime'], '%Y-%m-%d %H:%M:%S')
-        message = 'get thread data\n\ntitle: {}\nboard: {}\ndate: {}\n\n{}'.format(thread['title'], thread['board'], d.strftime('%Y/%m/%d'), link_thread)
-        if lineNotifyFlag: lineNotify.send(message=message)
+          d = datetime.datetime.strptime(thread['datetime'], '%Y-%m-%d %H:%M:%S')
+          # message = 'get thread data\n\ntitle: {}\nboard: {}\ndate: {}\n\n{}'.format(thread['title'], thread['board'], d.strftime('%Y/%m/%d'), link_thread)
+          # if lineNotifyFlag: lineNotify.send(message=message)
+        
+        except Exception as e:
+          message = 'error\n\n{}\n\n{}'.format(e, link_thread)
+          if lineNotifyFlag: lineNotify.send(message=message)
 
 if __name__ == '__main__': main()
