@@ -1,5 +1,3 @@
-# from pydrive.drive import GoogleDrive
-# from pydrive.auth import GoogleAuth
 import requests
 from bs4 import BeautifulSoup
 import json
@@ -9,7 +7,6 @@ import sqlite3
 import uuid
 import os
 
-# from gdrive import *
 from LineNotify import *
 
 
@@ -67,9 +64,14 @@ def getThread(url, boardName):
   thread = soup.find(class_='thread')
   if thread == None: return None
 
+  dts = thread.find_all('dt')
+  dds = thread.find_all('dd')
+  idx = range(len(dts))
+
   posts = []
-  for dt, dd in zip(thread.find_all('dt'), thread.find_all('dd')):
+  for i, dt, dd in zip(idx, dts, dds):
     posts.append({
+      'index': i,
       'user': dt.find('b').text,
       'datetime': getDatetime(dt.text),
       'post': dd.text
@@ -82,25 +84,17 @@ def getThread(url, boardName):
     'url': url,
     'length': len(posts),
     'content': posts
-    }
-
-def makeFilename(thread):
-  d = datetime.datetime.strptime(thread['datetime'], '%Y-%m-%d %H:%M:%S')
-  return d.strftime('%Y%m%d_%H%M') + '_' + thread['title'] + '.json'
-
-def getFolderName(thread):
-  d = datetime.datetime.strptime(thread['datetime'], '%Y-%m-%d %H:%M:%S')
-  return d.strftime('%Y%m')
+  }
 
 def insertThread(con, thread):
   thread_id = 'thread_id_' + str(uuid.uuid4()).replace('-', '_')
 
-  create_table = '''create table if not exists {} (datetime varchar(64), user varchar(64),
+  create_table = '''create table if not exists {} (idx int, datetime varchar(64), user varchar(64),
                     post varchar(64))'''.format(thread_id)
   con.execute(create_table)
 
-  insert_sql = 'insert into {} (datetime, user, post) values (?,?,?)'.format(thread_id)
-  row = [(post['datetime'], post['user'], post['post']) for post in thread['content']]
+  insert_sql = 'insert into {} (idx, datetime, user, post) values (?,?,?,?)'.format(thread_id)
+  row = [(post['index'], post['datetime'], post['user'], post['post']) for post in thread['content']]
   con.executemany(insert_sql, row)
 
   create_table = '''create table if not exists threads (id varchar(64), datetime varchar(64), board varchar(64),
@@ -114,13 +108,6 @@ def insertThread(con, thread):
   con.commit()
 
 def main():
-  # gauth = GoogleAuth()
-  # gauth.LocalWebserverAuth()
-
-  # drive = GoogleDrive(gauth)
-
-  # folderIdList = getFolderIdList('folderIdList.json', drive)
-
   lineNotifyFlag = False
   filename = 'LineAccessToken.txt'
   if os.path.exists(filename):
@@ -151,13 +138,7 @@ def main():
           print('get thread data: {} {} {} {}'.format(thread['board'], thread['datetime'], link_thread, thread['title']))
           json_thread = json.dumps(thread, ensure_ascii=False, indent=2)
 
-          # folderId = folderIdList[getFolderName(thread)]
-          # writeGDrive(drive, makeFilename(thread), folderId, json_thread)
           insertThread(con, thread)
-
-          # d = datetime.datetime.strptime(thread['datetime'], '%Y-%m-%d %H:%M:%S')
-          # message = 'get thread data\n\ntitle: {}\nboard: {}\ndate: {}\n\n{}'.format(thread['title'], thread['board'], d.strftime('%Y/%m/%d'), link_thread)
-          # if lineNotifyFlag: lineNotify.send(message=message)
         
         except Exception as e:
           print('[Error] {} {}'.format(link_thread, e))

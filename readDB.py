@@ -1,17 +1,16 @@
 import sqlite3
 import pprint
+import pandas as pd
 
 con = sqlite3.connect('5chScrape.db')
 
-cursor = con.cursor()
+df = pd.read_sql_query('select * from sqlite_master where type="table"', con)
+print(df)
 
-# cursor.execute('SELECT * FROM {} ORDER BY user'.format('しりとりしましょう！'))
-cursor.execute('SELECT * FROM threads ORDER BY title')
-threads = cursor.fetchall()
-pprint.pprint(threads)
+threads = pd.read_sql_query('SELECT * FROM threads ORDER BY title', con)
+print(threads)
 
-cursor.execute('SELECT * FROM {} ORDER BY user'.format(threads[10][0]))
-thread = cursor.fetchall()
-pprint.pprint(thread)
+df = pd.read_sql_query('SELECT * FROM {} ORDER BY user'.format(threads['id'][0]), con)
+print(df.sort_values('idx'))
 
 con.close()
