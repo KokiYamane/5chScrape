@@ -1,17 +1,20 @@
-from pydrive.drive import GoogleDrive
-from pydrive.auth import GoogleAuth
+# from pydrive.drive import GoogleDrive
+# from pydrive.auth import GoogleAuth
 import requests
 from bs4 import BeautifulSoup
 import json
 import re
 import datetime
+import sqlite3
+import uuid
+import os
 
-from gdrive import *
+# from gdrive import *
 from LineNotify import *
 
 
 def getDomain(url):
-  return re.match(r'(?:https?://)?(?P<host>.*?)(?:[:#?/@]|$)', url).group(0)
+  return re.match(r'(?:https?://)?(?P<host>.*?)(?:[:#?/@]|$)', url).group(0)[:-1]
 
 def getLinksFromBoard(url):
   html = requests.get(url)
@@ -20,7 +23,7 @@ def getLinksFromBoard(url):
   if board == None: return []
 
   domain = getDomain(url)
-  return [domain[:-1] + link.get('href') for link in board.find_all('a')]
+  return [domain + link.get('href') for link in board.find_all('a')]
 
 def getLinksFromMain(url):
   domain = getDomain(url)
@@ -77,6 +80,7 @@ def getThread(url, boardName):
     'datetime': getDatetime(thread.find('dt').text),
     'board': boardName,
     'url': url,
+    'length': len(posts),
     'content': posts
     }
 
@@ -88,11 +92,34 @@ def getFolderName(thread):
   d = datetime.datetime.strptime(thread['datetime'], '%Y-%m-%d %H:%M:%S')
   return d.strftime('%Y%m')
 
-def main():
-  gauth = GoogleAuth()
-  gauth.LocalWebserverAuth()
+def insertThread(con, thread):
+  thread_id = 'thread_id_' + str(uuid.uuid4()).replace('-', '_')
 
-  drive = GoogleDrive(gauth)
+  create_table = '''create table if not exists {} (datetime varchar(64), user varchar(64),
+                    post varchar(64))'''.format(thread_id)
+  con.execute(create_table)
+
+  insert_sql = 'insert into {} (datetime, user, post) values (?,?,?)'.format(thread_id)
+  row = [(post['datetime'], post['user'], post['post']) for post in thread['content']]
+  con.executemany(insert_sql, row)
+
+  create_table = '''create table if not exists threads (id varchar(64), datetime varchar(64), board varchar(64),
+                    title varchar(64), url varchar(64), length int)'''
+  con.execute(create_table)
+
+  sql = 'insert into threads (id, datetime, board, title, url, length) values (?,?,?,?,?,?)'
+  user = (thread_id, thread['datetime'], thread['board'], thread['title'], thread['url'], thread['length'])
+  con.execute(sql, user)
+
+  con.commit()
+
+def main():
+  # gauth = GoogleAuth()
+  # gauth.LocalWebserverAuth()
+
+  # drive = GoogleDrive(gauth)
+
+  # folderIdList = getFolderIdList('folderIdList.json', drive)
 
   lineNotifyFlag = False
   filename = 'LineAccessToken.txt'
@@ -103,7 +130,10 @@ def main():
       lineNotifyFlag = True
   else: print('Line Access Token Not Find.')
 
-  folderIdList = getFolderIdList('folderIdList.json', drive)
+  dbFilename = '5chScrape.db'
+  if os.path.exists(dbFilename): os.remove(dbFilename)
+  con = sqlite3.connect(dbFilename)
+
 
   urlName = 'http://lavender.5ch.net/kakolog_servers.html'
   url = requests.get(urlName)
@@ -120,11 +150,12 @@ def main():
           if thread == None: continue
           print('get thread data: {} {} {} {}'.format(thread['board'], thread['datetime'], link_thread, thread['title']))
           json_thread = json.dumps(thread, ensure_ascii=False, indent=2)
-          folderId = folderIdList[getFolderName(thread)]
 
-          writeGDrive(drive, makeFilename(thread), folderId, json_thread)
+          # folderId = folderIdList[getFolderName(thread)]
+          # writeGDrive(drive, makeFilename(thread), folderId, json_thread)
+          insertThread(con, thread)
 
-          d = datetime.datetime.strptime(thread['datetime'], '%Y-%m-%d %H:%M:%S')
+          # d = datetime.datetime.strptime(thread['datetime'], '%Y-%m-%d %H:%M:%S')
           # message = 'get thread data\n\ntitle: {}\nboard: {}\ndate: {}\n\n{}'.format(thread['title'], thread['board'], d.strftime('%Y/%m/%d'), link_thread)
           # if lineNotifyFlag: lineNotify.send(message=message)
         
@@ -132,5 +163,7 @@ def main():
           print('[Error] {} {}'.format(link_thread, e))
           message = 'error\n\n{}\n\n{}'.format(e, link_thread)
           if lineNotifyFlag: lineNotify.send(message=message)
+
+  con.close()
 
 if __name__ == '__main__': main()
