@@ -1,3 +1,5 @@
+import time
+import random
 import requests
 from bs4 import BeautifulSoup
 import json
@@ -9,6 +11,7 @@ import os
 import csv
 import concurrent.futures
 import pandas as pd
+import pprint
 
 from LineNotify import *
 
@@ -57,9 +60,9 @@ def getDatetime(text):
   else: return ''
   try:
     d = datetime.datetime.strptime(text_date + ' ' + text_time, '%y/%m/%d %H:%M')
+    return d.strftime('%Y-%m-%d %H:%M:%S')
   except:
-    d = datetime.datetime.strptime(text_date + ' 00:00', '%y/%m/%d %H:%M')
-  return d.strftime('%Y-%m-%d %H:%M:%S')
+    return ''
 
 def scanThread(url, boardName):
   html = requests.get(url)
@@ -111,58 +114,53 @@ def insertThread(con, thread):
   con.commit()
 
 
-def saveThread(connection, url, boardName, lineNotify=None):
-  concurrent.futures.getLogger().info("%s start", url)
+def saveThread(arg):
+  connection, url, board = arg
 
-  cursor = connection.cursor()
-  print(cursor.execute(
-      'SELECT COUNT(*) FROM sqlite_master WHERE TYPE="table" AND NAME=?', url))
-  if cursor.execute('SELECT COUNT(*) FROM sqlite_master WHERE TYPE="table" AND NAME=?', url):
-    return
+  # print(cursor.execute(
+  #     'SELECT url FROM threads WHERE NAME=?', url))
+  # if cursor.execute('SELECT COUNT(*) FROM sqlite_master WHERE TYPE="table" AND NAME=?', url):
+  #   return
 
-  # try:
-  #   thread = scanThread(url, boardName, lineNotify)
-  #   insertThread(connection, thread)
-  # except Exception as e:
-  #   print('[Error] {} {}'.format(url, e))
-  #   message = 'error\n\n{}\n\n{}'.format(e, url)
-  #   if lineNotify != None:
-  #     lineNotify.send(message=message)
-
-  concurrent.futures.getLogger().info("%s end", url)
+  try:
+    thread = scanThread(url, board)
+    print('get thread data: {} {} {} {}'.format(
+        thread['datetime'], url, thread['board'], thread['title']))
+    # insertThread(connection, thread)
+  except Exception as e:
+    print('[Error] {} {}'.format(url, e))
+    message = 'error\n\n{}\n\n{}'.format(e, url)
+    # if lineNotify != None:
+    #   lineNotify.send(message=message)
 
 def main():
-  lineNotifyFlag = False
-  filename = 'LineAccessToken.txt'
-  if os.path.exists(filename):
-    with open(filename) as f:
-      LineAccessToken = f.read()
-      lineNotify = LINENotify(access_token=LineAccessToken)
-      lineNotifyFlag = True
-  else: print('Line Access Token Not Find.')
+  # lineNotifyFlag = False
+  # filename = 'LineAccessToken.txt'
+  # if os.path.exists(filename):
+  #   with open(filename) as f:
+  #     LineAccessToken = f.read()
+  #     lineNotify = LINENotify(access_token=LineAccessToken)
+  #     lineNotifyFlag = True
+  # else: print('Line Access Token Not Find.')
 
   dbFilename = '5chScrape.db'
-  con = sqlite3.connect(dbFilename)
+  connection = sqlite3.connect(dbFilename)
+  cursor = connection.cursor()
 
   df_links_thread = pd.read_csv('threadURLList.csv', encoding='shift-jis')
   print(df_links_thread)
 
-  # for board, link_thread in links_thread.items():
-  #   try:
-  #     thread = scanThread(link_thread, board)
-  #     if thread == None: continue
-  #     print('get thread data: {} {} {} {}'.format(thread['board'], thread['datetime'], link_thread, thread['title']))
-      # json_thread = json.dumps(thread, ensure_ascii=False, indent=2)
-
-      # insertThread(con, thread)
+  df_links_thread = df_links_thread.sample(frac=1).reset_index(drop=True)
+  print(df_links_thread)
 
   args = []
   for url, board in zip(df_links_thread['url'], df_links_thread['board']):
-    args.append((con, url, board))
-  print(args[:5])
-  with concurrent.futures.ProcessPoolExecutor(max_workers=61) as executor:
-    executor.map(saveThread, args[:100])
+    args.append((connection, url, board))
+  pprint.pprint(args[:5])
+  with concurrent.futures.ThreadPoolExecutor(max_workers=61) as executor:
+    thread = executor.map(saveThread, args)
 
-  con.close()
+
+  connection.close()
 
 if __name__ == '__main__': main()
