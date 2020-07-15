@@ -22,46 +22,6 @@ def getDomain(url):
                     url).group(0)[:-1]
 
 
-def getLinksFromBoard(url):
-    html = requests.get(url)
-    soup = BeautifulSoup(html.content, 'html5lib')
-    board = soup.find(class_='board')
-    if board == None:
-        return []
-
-    domain = getDomain(url)
-    return [domain + link.get('href') for link in board.find_all('a')]
-
-
-def getLinksFromMain(url):
-    domain = getDomain(url)
-
-    html = requests.get(url)
-    soup = BeautifulSoup(html.content, 'html5lib')
-
-    boardName = soup.find(class_='name_strings')
-    board = ''
-    if boardName != None:
-        board = boardName.text
-
-    threads = soup.find(class_='main')
-    if threads == None:
-        return []
-
-    links = []
-    for p in threads.find_all('p')[1:]:
-        lines = p.find(class_='lines')
-        if lines == None:
-            continue
-        if int(lines.text) < 100:
-            continue
-        link = p.find('a')
-        if link == None:
-            continue
-        links.append(domain + link.get('href'))
-    return board, links
-
-
 def getId(text):
     match = re.search(r'ID:.{8}', text)
     if match != None:
@@ -90,8 +50,8 @@ def getDatetime(text):
 
 
 def scanThread(url, boardName):
-    html = requests.get(url)
-    soup = BeautifulSoup(html.content, 'html5lib')
+    res = requests.get(url)
+    soup = BeautifulSoup(res.content, 'html5lib')
     thread = soup.find(class_='thread')
     if thread == None:
         return None
@@ -103,90 +63,86 @@ def scanThread(url, boardName):
     posts = []
     for i, dt, dd in zip(idx, dts, dds):
         posts.append({
-            'index': i+1,
-            'user': dt.find('b').text,
-            'id': getId(dt.text),
+            'number': i+1,
             'datetime': getDatetime(dt.text),
-            'text': dd.text
+            'userId': getId(dt.text),
+            'userName': dt.find('b').text,
+            'text': dd.text.replace('\n', '')
         })
     title = soup.find('title').text
     return {
         'title': title,
         'datetime': getDatetime(thread.find('dt').text),
-        'board': boardName,
         'url': url,
         'length': len(posts),
+        'board': boardName,
         'content': posts
     }
 
 
-def insertThread(dbFilename, thread):
-    con = sqlite3.connect(dbFilename)
-
-    create_table = '''create table if not exists threads (id varchar(64),
-          datetime varchar(64), board varchar(64),
-          title varchar(64), url varchar(64), length int)'''
-    con.execute(create_table)
-
+def insertThread(folderName, thread):
     thread_id = 'thread_id_' + str(uuid.uuid4()).replace('-', '_')
-    insert_sql = '''insert into threads (id, datetime, board, title, url,
-                  length)values (?,?,?,?,?,?)'''
-    row = (thread_id, thread['datetime'], thread['board'],
-           thread['title'], thread['url'], thread['length'])
-    con.execute(insert_sql, row)
+    threadInfo = {}
+    threadInfo['id'] = thread_id
+    threadInfo['datetime'] = thread['datetime']
+    threadInfo['url'] = thread['url']
+    threadInfo['length'] = thread['length']
+    threadInfo['board'] = thread['board']
+    threadInfo['title'] = thread['title']
+    json_thread_info = json.dumps(threadInfo, ensure_ascii=False)
+    with open(folderName + '/threads.jsonl', mode='a', encoding='utf-8') as f:
+        f.write(json_thread_info + '\n')
 
-    create_table = '''create table if not exists {} (idx int,
-                    datetime varchar(20), user varchar(64),
-                    id varchar(8), text varchar(64))'''.format(thread_id)
-    con.execute(create_table)
-
-    insert_sql = '''insert into {} (idx, datetime, user, id, text)
-                  values (?,?,?,?,?)'''.format(
-        thread_id)
-    rows = [(post['index'], post['datetime'], post['user'], post['id'],
-              post['text']) for post in thread['content']]
-    con.executemany(insert_sql, rows)
-
-    con.commit()
-
-    con.close()
+    threadsFolderName = folderName + '/threads'
+    if not os.path.isdir(threadsFolderName):
+        os.mkdir(threadsFolderName)
+    with open(folderName + '/threads/' + thread_id + '.jsonl',
+                mode='w', encoding='utf-8') as f:
+        for post in thread['content']:
+            json_thread = json.dumps(post, ensure_ascii=False)
+            f.write(json_thread + '\n')
 
 
 def saveThread(arg):
     url, board = arg
-    dbFilename = '5chThreads.sqlite3'
+    folderName = '5chThreads'
     try:
         thread = scanThread(url, board)
+        if thread == None:
+            e = 'Thread Not Found'
+            print('[Error] {} {}'.format(url, e))
+            return
+        insertThread(folderName, thread)
         print('get thread data: {} {} {} {}'.format(
             thread['datetime'], url, thread['board'], thread['title']))
-        insertThread(dbFilename, thread)
     except Exception as e:
         print('[Error] {} {}'.format(url, e))
 
 
 def main():
     df_links_threads = pd.read_csv('threadURLList.csv', encoding='shift-jis')
-    df_links_threads = df_links_threads.set_index('url', )
+    df_links_threads = df_links_threads.set_index('url')
     print(df_links_threads.index)
 
-    dbFilename = '5chThreads.sqlite3'
-    con = sqlite3.connect(dbFilename)
-    create_table = '''create table if not exists threads (id varchar(64),
-          datetime varchar(64), board varchar(64),
-          title varchar(64), url varchar(64), length int)'''
-    con.execute(create_table)
-    df_exist_threads = pd.read_sql_query('SELECT * FROM threads ORDER BY title', con)
-    print(df_exist_threads['url'])
+    folderName = '5chThreads'
+    if not os.path.isdir(folderName):
+        os.mkdir(folderName)
+    if os.path.isfile('5chThreads/threads.jsonl'):
+        df_exist_threads = pd.read_json(
+            '5chThreads/threads.jsonl', orient='records', lines=True)
+        print(df_exist_threads['url'])
 
-    urlList = np.setdiff1d(df_links_threads.index, df_exist_threads['url'])
-    print('URL Number: ' + str(len(urlList)))
+        urlList = np.setdiff1d(df_links_threads.index, df_exist_threads['url'])
+        print('URL Number: ' + str(len(urlList)))
+    else:
+        urlList = df_links_threads.index
 
     args = []
     for url in urlList:
         args.append((url, df_links_threads['board'][url]))
     pprint.pprint(args[:10])
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=61) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=61) as executor:
         thread = executor.map(saveThread, args)
 
 
